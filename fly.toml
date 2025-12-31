@@ -1,0 +1,21 @@
+# fly.toml app configuration file
+app = "whatsapp-bot-honda"
+primary_region = "sin"
+
+[build]
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+[mounts]
+  source = "wa_session_data"
+  destination = "/app/wa-session"
