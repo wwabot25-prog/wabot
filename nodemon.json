@@ -1,0 +1,11 @@
+{
+    "ignore": [
+        "data/**",
+        "wa-session/**",
+        "*.log"
+    ],
+    "watch": [
+        "src/**/*.js"
+    ],
+    "delay": 3000
+}
