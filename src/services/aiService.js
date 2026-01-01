@@ -32,7 +32,33 @@ class AIService {
         this.contextFile = require('path').join(__dirname, '../../data/userContext.json');
         this.userContext = this.loadContext();
 
+        // Greeting Tracker (Prevent repeated greetings)
+        this.greetingFile = require('path').join(__dirname, '../../data/userGreeting.json');
+        this.hasGreeted = this.loadGreetingTracker();
+
         logger.info(`AI Service initialized (${this.modelName})`);
+    }
+
+    /**
+     * Clean Markdown formatting untuk WhatsApp
+     * Konversi **bold** menjadi *bold* (format WhatsApp)
+     */
+    cleanMarkdown(text) {
+        if (!text) return text;
+
+        let cleaned = text;
+
+        // Konversi **bold** menjadi *bold* (WhatsApp format)
+        cleaned = cleaned.replace(/\*\*(.+?)\*\*/g, '*$1*');
+
+        // Hapus ``` code blocks (tidak support di WhatsApp)
+        cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
+        cleaned = cleaned.replace(/`(.+?)`/g, '$1');
+
+        // Bersihkan multiple asterisks yang berlebihan
+        cleaned = cleaned.replace(/\*{3,}/g, '*');
+
+        return cleaned;
     }
 
     /**
@@ -51,6 +77,39 @@ class AIService {
             }
         }
         return new Map();
+    }
+
+    /**
+     * Load greeting tracker from file
+     */
+    loadGreetingTracker() {
+        const fs = require('fs');
+        if (fs.existsSync(this.greetingFile)) {
+            try {
+                const data = fs.readFileSync(this.greetingFile, 'utf8');
+                return new Set(JSON.parse(data));
+            } catch (err) {
+                logger.error('Failed to load greeting tracker:', err);
+                return new Set();
+            }
+        }
+        return new Set();
+    }
+
+    /**
+     * Save greeting tracker to file
+     */
+    saveGreetingTracker() {
+        const fs = require('fs');
+        const dir = require('path').dirname(this.greetingFile);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+        try {
+            const data = JSON.stringify(Array.from(this.hasGreeted));
+            fs.writeFileSync(this.greetingFile, data);
+        } catch (err) {
+            logger.error('Failed to save greeting tracker:', err);
+        }
     }
 
     /**
@@ -118,6 +177,20 @@ class AIService {
     clearHistory(userId) {
         this.conversationHistory.delete(userId);
         logger.info(`Cleared conversation history for user: ${userId} `);
+    }
+
+    /**
+     * Clear greeting tracker for user (for testing or reset)
+     */
+    clearGreeting(userId = null) {
+        if (userId) {
+            this.hasGreeted.delete(userId);
+            logger.info(`Cleared greeting for user: ${userId}`);
+        } else {
+            this.hasGreeted.clear();
+            logger.info('Cleared all greeting trackers');
+        }
+        this.saveGreetingTracker();
     }
 
     /**
@@ -215,20 +288,23 @@ class AIService {
         return `Kamu adalah Lucky, Customer Service di NSS Honda Cibadak.
 Gaya bicaramu ramah, solutif, dan profesional(menggunakan Bahasa Indonesia santai + sedikit sentuhan lokal akrab).
 
-🎨 ATURAN FORMATTING(BIAR RAPI):
-1. Gunakan ** Bold ** (* teks *) untuk harga, nama motor, dan poin penting.
-2. Gunakan Emoji secukupnya sebagai bullet points(✅, 📝, 💰, 🚚).
-3. Pisahkan setiap poin dengan BARIS BARU(Enter) agar tidak menumpuk.
+🎨 ATURAN FORMATTING (BIAR RAPI):
+1. Gunakan *Bold* (satu asterisk) untuk harga, nama motor, dan poin penting. JANGAN gunakan **double asterisk**.
+2. Gunakan Emoji secukupnya sebagai bullet points (✅, 📝, 💰, 🚚).
+3. Pisahkan setiap poin dengan BARIS BARU (Enter) agar tidak menumpuk.
 4. Jangan kirim tembok teks panjang! Pecah jadi paragraf pendek.
+5. PENTING: Format WhatsApp hanya support *bold* (1 asterisk), BUKAN **bold** (2 asterisk).
 
-👋 GREETING (HANYA UNTUK PESAN PERTAMA USER):
-- Jika user baru pertama kali chat atau menyapa (halo/hi/assalamualaikum), gunakan:
+👋 GREETING (HANYA UNTUK USER BARU YANG BELUM PERNAH CHAT):
+⚠️ PERHATIAN: Greeting "Sampurasun" HANYA boleh digunakan jika user BENAR-BENAR BARU pertama kali chat.
+
+- Jika user BARU PERTAMA KALI dan menyapa (halo/hi/assalamualaikum), gunakan:
   "Sampurasun Kak! 🙏 Kenalin, saya Lucky dari Nusantara Sakti (NSS) Honda Cibadak.
    Makasih ya udah mampir tanya-tanya. Lagi nyari motor buat nemenin kerja atau buat jalan-jalan santai nih Kak?
    Oh iya, mumpung lagi di NSS Cibadak, lagi banyak promo menarik lho. Kakak lagi ngelirik tipe apa? Beat, Vario, atau motor gagah kayak PCX?"
 
-- Jika user sudah pernah chat sebelumnya atau langsung tanya spesifik, JANGAN pakai greeting panjang.
-  Langsung jawab pertanyaannya dengan ramah tapi to the point.
+- Jika user SUDAH PERNAH CHAT atau langsung tanya spesifik, JANGAN pakai greeting "Sampurasun" lagi.
+  Langsung jawab dengan: "Halo Kak! Ada yang bisa Lucky bantu lagi?" atau langsung to the point.
 
 📘 SOP & FAQ JAWABAN(JADIKAN ACUAN UTAMA):
 
@@ -320,7 +396,12 @@ Sekarang, jawab user.INGAT MARKER IMAGE JIKA DIPERLUKAN!`;
             }));
 
             // Add guidance to current message
-            const guidance = `\n\n(SYSTEM REMINDER: Jika user meminta gambar, WAJIB sertakan marker [SEND_IMAGE:NAMA_MOTOR] atau [SEND_ALL_COLORS:NAMA_MOTOR] di awal jawaban. Jawab dengan format rapi BOLD/EMOJI.)`;
+            const isNewUser = !this.hasGreeted.has(userId);
+            const greetingGuidance = isNewUser
+                ? `\n\n(SYSTEM: User ini BARU PERTAMA KALI chat. Boleh pakai greeting "Sampurasun".)`
+                : `\n\n(SYSTEM: User ini SUDAH PERNAH chat sebelumnya. JANGAN pakai greeting "Sampurasun" lagi. Langsung jawab pertanyaannya.)`;
+
+            const guidance = `\n\n(SYSTEM REMINDER: Jika user meminta gambar, WAJIB sertakan marker [SEND_IMAGE:NAMA_MOTOR] atau [SEND_ALL_COLORS:NAMA_MOTOR] di awal jawaban. Format: Gunakan *bold* (1 asterisk), BUKAN **bold** (2 asterisk).)${greetingGuidance}`;
             const fullPrompt = systemPrompt + '\n\n' + contextMessage + guidance;
 
             logger.info(`Data sent to AI: ${dataMotor.length} chars. Using Context: ${message !== contextMessage ? 'YES' : 'NO'}`);
@@ -366,13 +447,23 @@ Sekarang, jawab user.INGAT MARKER IMAGE JIKA DIPERLUKAN!`;
                 return 'Halo 👋 Maaf, saya sedang kesulitan memproses pertanyaan Kakak. Bisa diulang lagi atau hubungi kami langsung ya? 😊';
             }
 
-            logger.info(`AI response: ${trimmedReply.substring(0, 100)}...`);
+            // Clean Markdown formatting untuk WhatsApp
+            const cleanedReply = this.cleanMarkdown(trimmedReply);
+
+            logger.info(`AI response: ${cleanedReply.substring(0, 100)}...`);
+
+            // Mark user as greeted (save to file)
+            if (!this.hasGreeted.has(userId)) {
+                this.hasGreeted.add(userId);
+                this.saveGreetingTracker();
+                logger.info(`User ${userId} marked as greeted (saved to file)`);
+            }
 
             // Save to history
             this.addToHistory(userId, 'user', message);
-            this.addToHistory(userId, 'model', trimmedReply);
+            this.addToHistory(userId, 'model', cleanedReply);
 
-            return trimmedReply;
+            return cleanedReply;
 
         } catch (error) {
             logger.error('Process error:', error);

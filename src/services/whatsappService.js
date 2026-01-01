@@ -312,6 +312,19 @@ class WhatsAppService {
                 return;
             }
 
+            // Skip voice notes dan media lainnya
+            if (message.hasMedia || message.type === 'ptt' || message.type === 'audio') {
+                logger.info('Skipping voice note/media message');
+                await message.reply('Maaf Kak, saya belum bisa memproses pesan suara. Bisa ketik saja pertanyaannya? 😊');
+                return;
+            }
+
+            // Skip jika pesan kosong
+            if (!message.body || message.body.trim() === '') {
+                logger.info('Skipping empty message');
+                return;
+            }
+
             // Get message details
             const sender = message.from;
             const text = message.body;
